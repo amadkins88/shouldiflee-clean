@@ -1,6 +1,5 @@
 const fs = require('fs');
 const path = require('path');
-const fetch = require('node-fetch');
 const unzipper = require('unzipper');
 const readline = require('readline');
 const dayjs = require('dayjs');
@@ -8,8 +7,7 @@ const dayjs = require('dayjs');
 const GDELT_UPDATE_LIST_URL = 'http://data.gdeltproject.org/gdeltv2/lastupdate.txt';
 const OUTPUT_CSV = 'gdelt-mirror.csv';
 
-// This fetches the most recent export (event) file
-async function getLatestExportUrl() {
+async function getLatestExportUrl(fetch) {
   const res = await fetch(GDELT_UPDATE_LIST_URL);
   const text = await res.text();
   const lines = text.trim().split('\n');
@@ -23,8 +21,7 @@ async function getLatestExportUrl() {
   throw new Error('No export file found in GDELT update list');
 }
 
-// This downloads and extracts only the relevant data from the file
-async function downloadAndFilterGdelt(url) {
+async function downloadAndFilterGdelt(url, fetch) {
   console.log(`📥 Downloading: ${url}`);
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to fetch: ${res.statusText}`);
@@ -41,10 +38,10 @@ async function downloadAndFilterGdelt(url) {
 
   for await (const line of rl) {
     const cols = line.split('\t');
-    const sqlDate = cols[1];          // Correct for SQLDATE
-    const actor1 = cols[7];           // Actor1CountryCode
-    const actor2 = cols[17];          // Actor2CountryCode
-    const tone = cols[34];            // AvgTone
+    const sqlDate = cols[1];
+    const actor1 = cols[7];
+    const actor2 = cols[17];
+    const tone = cols[34];
     if (sqlDate && (actor1 || actor2) && tone) {
       output.write(`${sqlDate},${actor1},${actor2},${tone}\n`);
     }
@@ -54,12 +51,13 @@ async function downloadAndFilterGdelt(url) {
   console.log(`✅ Done. Saved filtered data to "${OUTPUT_CSV}"`);
 }
 
-// MAIN RUN
+// MAIN
 (async () => {
   try {
+    const fetch = (await import('node-fetch')).default;
     console.log('🔍 Fetching latest GDELT export URL...');
-    const url = await getLatestExportUrl();
-    await downloadAndFilterGdelt(url);
+    const url = await getLatestExportUrl(fetch);
+    await downloadAndFilterGdelt(url, fetch);
   } catch (err) {
     console.error('❌ Error:', err.message);
   }
