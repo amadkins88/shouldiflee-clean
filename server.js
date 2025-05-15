@@ -1,91 +1,97 @@
 const express = require('express');
 const cors = require('cors');
-require('dotenv').config();
-const { BigQuery } = require('@google-cloud/bigquery');
-const path = require('path');
-const fs = require('fs');
+const axios = require('axios');
+const csv = require('csv-parser');
+const { pipeline } = require('stream');
+const { promisify } = require('util');
+const dayjs = require('dayjs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-
-// Decode service account key from base64 and write it to a temp file
-const keyPath = path.join(__dirname, 'gdelt-key.json');
-
-if (!fs.existsSync(keyPath)) {
-  const encodedKey = process.env.GDELT_KEY_B64;
-
-  if (!encodedKey) {
-    console.error('❌ GDELT_KEY_B64 is not set in your environment variables.');
-    process.exit(1);
-  }
-
-  try {
-    const keyBuffer = Buffer.from(encodedKey, 'base64');
-    fs.writeFileSync(keyPath, keyBuffer);
-    console.log('✔️ Service account key written to gdelt-key.json');
-  } catch (err) {
-    console.error('❌ Failed to decode or write GDELT_KEY_B64:', err);
-    process.exit(1);
-  }
-}
-
-const bigquery = new BigQuery({
-  keyFilename: keyPath,
-});
 
 app.use(cors({
   origin: 'https://shouldiflee.com'
 }));
 
+const asyncPipeline = promisify(pipeline);
+
+const fetchGDELTData = async (country, days = 7) => {
+  const today = dayjs();
+  const results = [];
+  const lowerCountry = country.toLowerCase();
+
+  for (let i = 0; i < days; i++) {
+    const dateStr = today.subtract(i, 'day').format('YYYYMMDD');
+    const url = `http://data.gdeltproject.org/gdeltv2/${dateStr}.export.CSV`;
+
+    try {
+      const response = await axios({
+        method: 'get',
+        url,
+        responseType: 'stream',
+        timeout: 15000
+      });
+
+      await asyncPipeline(
+        response.data,
+        csv({ headers: false }),
+        async function* (source) {
+          for await (const row of source) {
+            const actionGeoFullName = row[51]?.toLowerCase();
+            const avgTone = parseFloat(row[34]);
+
+            if (actionGeoFullName && actionGeoFullName.includes(lowerCountry) && !isNaN(avgTone)) {
+              results.push(avgTone);
+            }
+          }
+        }
+      );
+    } catch (err) {
+      console.warn(`⚠️ Skipping ${url} due to fetch error or missing file.`);
+    }
+  }
+
+  return results;
+};
+
 app.get('/api/flee-score', async (req, res) => {
   try {
     const country = req.query.country || 'United States';
-    const searchTerm = country.toLowerCase();
+    const tones = await fetchGDELTData(country, 7);
+    const eventCount = tones.length;
 
-    const query = `
-      SELECT AvgTone
-      FROM \`gdelt-bq.gdeltv2.events\`
-      WHERE SQLDATE >= CAST(FORMAT_DATE('%Y%m%d', DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)) AS INT64)
-        AND LOWER(ActionGeo_FullName) LIKE '%${searchTerm}%'
-      LIMIT 1000
-    `;
+    let averageTone = 0;
+    if (eventCount > 0) {
+      averageTone = tones.reduce((a, b) => a + b, 0) / eventCount;
+    }
 
-    const [rows] = await bigquery.query({ query });
-    const eventCount = rows.length;
-
-    const avgToneSample = rows.map(r => parseFloat(r.AvgTone)).filter(n => !isNaN(n));
-    const avgTone = avgToneSample.length
-      ? avgToneSample.reduce((sum, n) => sum + n, 0) / avgToneSample.length
-      : 0;
-
-    // Base score from event volume
     const rawScore = eventCount * 2;
 
-    // Tone penalty logic
     let tonePenalty = 0;
-    if (avgTone >= -2) tonePenalty = 60;
-    else if (avgTone >= -4) tonePenalty = 40;
-    else if (avgTone >= -6) tonePenalty = 20;
+    if (averageTone >= -2) tonePenalty = 60;
+    else if (averageTone >= -4) tonePenalty = 40;
+    else if (averageTone >= -6) tonePenalty = 20;
 
     const score = Math.max(0, Math.min(100, rawScore - tonePenalty));
 
     const reason = eventCount > 0
-      ? `${eventCount} events reported in ${country} over the last 7 days with an average tone of ${avgTone.toFixed(2)}.`
-      : `No significant events reported in ${country} over the last 7 days.`;
+      ? `${eventCount} events in ${country} over the last 7 days with an average tone of ${averageTone.toFixed(2)}.`
+      : `No significant events found in ${country} over the last 7 days.`;
 
     res.json({
       score,
       topReason: reason,
       eventsChecked: eventCount,
-      averageTone: avgTone,
-      rawToneSample: avgToneSample.slice(0, 10)
+      averageTone,
+      rawToneSample: tones.slice(0, 10)
     });
+
   } catch (error) {
-    console.error("❌ GDELT query error:", error);
-    res.status(500).json({ error: "Failed to query GDELT data." });
+    console.error('❌ Mirror-based fetch failed:', error);
+    res.status(500).json({ error: 'Failed to fetch and parse GDELT data.' });
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 ShouldIFlee backend running on port ${PORT}`);
+  console.log(`🚀 CSV mirror version running on port ${PORT}`);
 });
