@@ -14,20 +14,20 @@ const __dirname = dirname(__filename);
 const updateUrl = 'https://data.gdeltproject.org/gdeltv2/lastupdate.txt';
 const res = await fetch(updateUrl);
 const text = await res.text();
-const latestLine = text.trim().split('\n')[0];
-const parts = latestLine.split(' ');
-const timestamp = parts[2].split('.')[0]; // "20250515171500"
-const zipFile = `${timestamp}.export.CSV.zip`;
-const zipUrl = `https://data.gdeltproject.org/gdeltv2/${zipFile}`;
+const latestLine = text.trim().split('\n')[0]; // example: "http://data.gdeltproject.org/gdeltv2/20250515.export.CSV.zip 20250515171500"
+const fullUrl = latestLine.split(' ')[0].trim(); // just get the full URL, safely
 
 
 
 
 
-console.log(`🔍 Fetching latest file: ${zipUrl}`);
+
+console.log(`🔍 Fetching latest file: ${fullUrl}`);
+
 
 // 2. Download the ZIP file
-const zipRes = await fetch(zipUrl);
+const zipRes = await fetch(fullUrl);
+
 if (!zipRes.ok) {
   throw new Error(`Failed to fetch ${zipUrl}: ${zipRes.statusText}`);
 }
