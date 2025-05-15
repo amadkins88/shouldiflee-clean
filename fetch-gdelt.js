@@ -34,21 +34,26 @@ async function downloadAndFilterGdelt(url, fetch) {
   const rl = readline.createInterface({ input: readStream });
 
   const output = fs.createWriteStream(OUTPUT_CSV);
-  output.write('SQLDATE,Actor1CountryCode,Actor2CountryCode,AvgTone\n');
+  output.write('SQLDATE,Actor1CountryCode,Actor2CountryCode,AvgTone,GoldsteinScale,EventCode,EventRootCode,NumArticles\n');
 
   for await (const line of rl) {
     const cols = line.split('\t');
     const sqlDate = cols[1];
     const actor1 = cols[7];
     const actor2 = cols[17];
-    const tone = cols[34];
-    if (sqlDate && (actor1 || actor2) && tone) {
-      output.write(`${sqlDate},${actor1},${actor2},${tone}\n`);
+    const avgTone = cols[34];
+    const goldstein = cols[30];
+    const eventCode = cols[26];
+    const eventRootCode = cols[27];
+    const numArticles = cols[31];
+
+    if (sqlDate && (actor1 || actor2) && avgTone) {
+      output.write(`${sqlDate},${actor1},${actor2},${avgTone},${goldstein},${eventCode},${eventRootCode},${numArticles}\n`);
     }
   }
 
   output.end();
-  console.log(`✅ Done. Saved filtered data to "${OUTPUT_CSV}"`);
+  console.log(`✅ Done. Saved enhanced data to "${OUTPUT_CSV}"`);
 }
 
 // MAIN
