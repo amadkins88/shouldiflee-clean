@@ -11,14 +11,16 @@ const COUNTRIES = ['United States', 'Ukraine', 'Sudan', 'Canada']; // Update as 
 // Get 8 most recent intervals (every 15 minutes)
 function generateRecentFileUrls(hoursBack = 2) {
   const urls = [];
-  const now = dayjs().utc();
+  const now = dayjs().utc().startOf('minute');
+  const rounded = now.subtract(now.minute() % 15, 'minute');
 
   for (let i = 0; i < (hoursBack * 4); i++) {
-    const timestamp = now.subtract(i * 15, 'minute').format('YYYYMMDDHHmm00');
+    const timestamp = rounded.subtract(i * 15, 'minute').format('YYYYMMDDHHmm00');
     urls.push(`http://data.gdeltproject.org/gdeltv2/${timestamp}.export.CSV`);
   }
   return urls;
 }
+
 
 // Download and filter a GDELT CSV file
 async function downloadAndFilterCSV(url) {
