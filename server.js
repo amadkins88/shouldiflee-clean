@@ -1,85 +1,87 @@
-import express from 'express';
-import cors from 'cors';
-import fetch from 'node-fetch';
-import dotenv from 'dotenv';
-
-dotenv.config();
+const express = require('express');
+const fs = require('fs');
+const csv = require('csv-parser');
+const cors = require('cors');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = 3000;
 
-// Dynamically allow all origins (for now)
-app.use(cors({
-  origin: function (origin, callback) {
-    callback(null, origin || '*');
+app.use(cors());
+
+// Country weights (add or adjust as needed)
+const violentEventCodes = new Set(['19', '20']); // 19 = fight, 20 = use of force
+
+function calculateFleeScore(entry) {
+  const avgTone = parseFloat(entry.AvgTone) || 0;
+  const goldstein = parseFloat(entry.GoldsteinScale) || 0;
+  const eventCode = (entry.EventRootCode || '').trim();
+  const articleCount = parseInt(entry.NumArticles || entry.ArticleCount || '0');
+
+  // Main weighted score formula
+  let score = 0;
+
+  // Tone is the strongest signal
+  score += avgTone * 1.5;
+
+  // Goldstein scale provides context (e.g., -10 = war, +10 = peace deal)
+  score += goldstein * 0.7;
+
+  // Event type – amplify score for violent conflict codes
+  if (violentEventCodes.has(eventCode)) {
+    score -= 1.5;
   }
-}));
 
-// Helper to calculate flee score
-const calculateFleeScore = async (country) => {
-  const countryParam = encodeURIComponent(country);
-  const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  const gdeltURL = `http://data.gdeltproject.org/gdeltv2/lastupdate.txt`;
-
-
-  try {
-    const response = await fetch(gdeltURL);
-    if (!response.ok) throw new Error(`Failed to fetch GDELT data: ${response.status}`);
-
-    const csv = await response.text();
-    const rows = csv.trim().split('\n').slice(1); // remove header
-    const events = rows.map(row => row.split('\t')).filter(e => e[51] === country);
-
-    const avgTone = events.length > 0
-      ? events.map(e => parseFloat(e[34])).reduce((a, b) => a + b, 0) / events.length
-      : 0;
-
-    const goldstein = events.map(e => parseFloat(e[30]));
-    const avgGoldstein = goldstein.length ? goldstein.reduce((a, b) => a + b, 0) / goldstein.length : 0;
-
-    const score = Math.round((avgTone * -2 + avgGoldstein * -1.5 + events.length * 0.01) * 10);
-
-    return {
-      score,
-      avgTone: parseFloat(avgTone.toFixed(2)),
-      eventCount: events.length,
-      sampleTones: events.slice(0, 5).map(e => parseFloat(e[34]))
-    };
-  } catch (err) {
-    console.error('Score calculation failed:', err);
-    return null;
+  // Article count adds noise weight (but capped)
+  if (articleCount > 0) {
+    const cappedCount = Math.min(articleCount, 50); // cap influence at 50
+    score -= cappedCount * 0.05;
   }
-};
 
-// Shared handler for both routes
-const fleeScoreHandler = async (req, res) => {
-  try {
-    const country = req.query.country;
-    if (!country) return res.status(400).json({ error: 'Missing country parameter' });
+  return score;
+}
 
-    const result = await calculateFleeScore(country);
-    if (!result) return res.status(500).json({ error: 'Failed to calculate score' });
+function determineFleeStatus(score) {
+  if (score <= -5) return 'YES';
+  if (score <= -2.5) return 'MAYBE';
+  return 'NO';
+}
 
-    res.json({
-      score: result?.score ?? null,
-      avgTone: result?.avgTone ?? null,
-      sampleTones: result?.sampleTones ?? [],
-      eventCount: result?.eventCount ?? 0
+app.get('/api/flee-score', (req, res) => {
+  const country = req.query.country;
+  if (!country) {
+    return res.status(400).json({ error: 'Country query parameter is required' });
+  }
+
+  const filePath = './gdelt-mirror.csv';
+
+  const countryEntries = [];
+
+  fs.createReadStream(filePath)
+    .pipe(csv())
+    .on('data', (row) => {
+      if ((row.ActionGeo_CountryCode || '').toLowerCase() === country.toLowerCase()) {
+        countryEntries.push(row);
+      }
+    })
+    .on('end', () => {
+      if (countryEntries.length === 0) {
+        return res.status(404).json({ error: 'No entries found for specified country' });
+      }
+
+      // Aggregate and calculate weighted score
+      const totalScore = countryEntries.reduce((sum, entry) => sum + calculateFleeScore(entry), 0);
+      const avgScore = totalScore / countryEntries.length;
+      const fleeStatus = determineFleeStatus(avgScore);
+
+      res.json({
+        country,
+        fleeStatus,
+        averageWeightedScore: avgScore.toFixed(2),
+        eventCount: countryEntries.length
+      });
     });
-  } catch (err) {
-    console.error('Flee Score Error:', err);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
-
-// Support both dash and underscore URLs
-app.get('/api/flee_score', fleeScoreHandler);
-app.get('/api/flee-score', fleeScoreHandler);
-
-app.get('/', (req, res) => {
-  res.send('Should I Flee API is running!');
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`Server running on http://localhost:${PORT}`);
 });
