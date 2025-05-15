@@ -54,13 +54,12 @@ app.get('/api/flee-score', async (req, res) => {
     const eventCount = rows.length;
 
     const avgToneSample = rows.map(r => parseFloat(r.AvgTone)).filter(n => !isNaN(n));
-    const negativeEvents = avgToneSample.filter(n => n < 0);
-    const avgTone = negativeEvents.length
-      ? negativeEvents.reduce((sum, n) => sum + n, 0) / negativeEvents.length
+    const avgTone = avgToneSample.length
+      ? avgToneSample.reduce((sum, n) => sum + n, 0) / avgToneSample.length
       : 0;
 
-    const toneImpact = avgTone < 0 ? Math.pow(-avgTone, 2) * 10 : 0;
-    const score = Math.min(Math.round(eventCount * 2 + toneImpact), 100);
+    const negativityMultiplier = avgTone < 0 ? Math.pow(-avgTone, 1.5) * 4 : 0;
+    const score = Math.min(Math.round(eventCount * negativityMultiplier), 100);
 
     const reason = eventCount > 0
       ? `${eventCount} events reported in ${country} over the last 7 days with an average tone of ${avgTone.toFixed(2)}.`
@@ -70,7 +69,6 @@ app.get('/api/flee-score', async (req, res) => {
       score,
       topReason: reason,
       eventsChecked: eventCount,
-      negativeEvents: negativeEvents.length,
       averageTone: avgTone,
       rawToneSample: avgToneSample.slice(0, 10)
     });
