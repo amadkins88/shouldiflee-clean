@@ -9,7 +9,7 @@ const port = process.env.PORT || 3000;
 const CSV_PATH = path.join(__dirname, 'gdelt-mirror.csv');
 
 // ——————————————————————————————————————————————————————————
-// 1) Dynamic CORS: allow any origin (for dev + prod)
+// 1) CORS
 // ——————————————————————————————————————————————————————————
 app.use(cors({
   origin: (origin, callback) => callback(null, true),
@@ -17,12 +17,12 @@ app.use(cors({
 }));
 
 // ——————————————————————————————————————————————————————————
-// 2) Serve your frontend from /public
+// 2) Serve frontend
 // ——————————————————————————————————————————————————————————
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ——————————————————————————————————————————————————————————
-// 3a) /api/rawcsv → just return the CSV as text
+// 3a) /api/rawcsv
 // ——————————————————————————————————————————————————————————
 app.get('/api/rawcsv', (req, res) => {
   fs.readFile(CSV_PATH, 'utf8', (err, csvText) => {
@@ -35,7 +35,7 @@ app.get('/api/rawcsv', (req, res) => {
 });
 
 // ——————————————————————————————————————————————————————————
-// 3b) /api/data → parse CSV into JSON
+// 3b) /api/data → CSV to JSON
 // ——————————————————————————————————————————————————————————
 app.get('/api/data', (req, res) => {
   fs.readFile(CSV_PATH, 'utf8', (err, csvText) => {
@@ -45,18 +45,18 @@ app.get('/api/data', (req, res) => {
     }
 
     const lines = csvText.trim().split('\n');
-    const headers = lines.shift().split(',');
+    const headers = lines.shift().split(',').map(h => h.trim());
     const data = lines.map(line => {
       const cols = line.split(',');
       const obj = {};
 
-      headers.forEach((h, i) => {
-        let val = cols[i] === undefined ? '' : cols[i].trim();
-        if (['AvgTone', 'GoldsteinScale', 'NumArticles'].includes(h)) {
+      headers.forEach((header, i) => {
+        let val = cols[i]?.trim() || '';
+        if (['AvgTone', 'GoldsteinScale', 'NumArticles'].includes(header)) {
           const n = parseFloat(val);
           val = Number.isFinite(n) ? n : 0;
         }
-        obj[h] = val;
+        obj[header] = val;
       });
 
       return obj;
@@ -67,7 +67,7 @@ app.get('/api/data', (req, res) => {
 });
 
 // ——————————————————————————————————————————————————————————
-// 3c) /api/flee-score?country=USA → return score summary
+// 3c) /api/flee-score?country=USA
 // ——————————————————————————————————————————————————————————
 app.get('/api/flee-score', (req, res) => {
   const requestedCountry = req.query.country?.toUpperCase();
@@ -79,27 +79,27 @@ app.get('/api/flee-score', (req, res) => {
     }
 
     const lines = csvText.trim().split('\n');
-    const headers = lines.shift().split(',');
+    const headers = lines.shift().split(',').map(h => h.trim());
     const data = lines.map(line => {
       const cols = line.split(',');
       const row = {};
-      headers.forEach((h, i) => {
+      headers.forEach((header, i) => {
         let val = cols[i]?.trim() || '';
-        if (['AvgTone', 'GoldsteinScale', 'NumArticles'].includes(h)) {
+        if (['AvgTone', 'GoldsteinScale', 'NumArticles'].includes(header)) {
           val = parseFloat(val);
-          row[h] = Number.isFinite(val) ? val : 0;
+          row[header] = Number.isFinite(val) ? val : 0;
         } else {
-          row[h] = val;
+          row[header] = val;
         }
       });
       return row;
     });
 
-    // ✅ Compare against uppercased request country
-const filtered = data.filter(d => d.Actor1CountryCode === requestedCountry);
-
+    // 🔍 Use Actor1CountryCode as filter
+    const filtered = data.filter(d => d.Actor1CountryCode === requestedCountry);
 
     if (filtered.length === 0) {
+      console.warn(`No matching rows for country: ${requestedCountry}`);
       return res.status(404).json({ error: 'No data for that country.' });
     }
 
@@ -130,14 +130,14 @@ const filtered = data.filter(d => d.Actor1CountryCode === requestedCountry);
 });
 
 // ——————————————————————————————————————————————————————————
-// 4) Catch-all to serve index.html for SPA routing
+// 4) Fallback route for SPA
 // ——————————————————————————————————————————————————————————
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // ——————————————————————————————————————————————————————————
-// 5) Start
+// 5) Start the server
 // ——————————————————————————————————————————————————————————
 app.listen(port, () => {
   console.log(`🚀 Server running on http://localhost:${port}`);
