@@ -8,16 +8,24 @@ const fs = require('fs');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Write GCP key from environment into a real file
+// Decode service account key from base64 and write it to a temp file
 const keyPath = path.join(__dirname, 'gdelt-key.json');
 
 if (!fs.existsSync(keyPath)) {
+  const encodedKey = process.env.GDELT_KEY_B64;
+
+  if (!encodedKey) {
+    console.error('❌ GDELT_KEY_B64 is not set in your environment variables.');
+    process.exit(1);
+  }
+
   try {
-    const keyBuffer = Buffer.from(process.env.GDELT_KEY_B64, 'base64');
+    const keyBuffer = Buffer.from(encodedKey, 'base64');
     fs.writeFileSync(keyPath, keyBuffer);
-    console.log('✔️ GDELT key written to disk');
+    console.log('✔️ Service account key written to gdelt-key.json');
   } catch (err) {
-    console.error('❌ Failed to decode GDELT_KEY_B64:', err);
+    console.error('❌ Failed to decode or write GDELT_KEY_B64:', err);
+    process.exit(1);
   }
 }
 
@@ -25,7 +33,9 @@ const bigquery = new BigQuery({
   keyFilename: keyPath,
 });
 
-app.use(cors());
+app.use(cors({
+  origin: 'https://shouldiflee.com'
+}));
 
 app.get('/api/flee-score', async (req, res) => {
   try {
@@ -62,11 +72,11 @@ app.get('/api/flee-score', async (req, res) => {
       rawToneSample: avgToneSample.slice(0, 10)
     });
   } catch (error) {
-    console.error("GDELT query error:", error);
+    console.error("❌ GDELT query error:", error);
     res.status(500).json({ error: "Failed to query GDELT data." });
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`🌍 Server running on port ${PORT}`);
+  console.log(`🚀 ShouldIFlee backend running on port ${PORT}`);
 });
