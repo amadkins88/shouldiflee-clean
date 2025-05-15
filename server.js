@@ -96,7 +96,8 @@ app.get('/api/flee-score', (req, res) => {
     });
 
     // ✅ Compare against uppercased request country
-    const filtered = data.filter(d => d.ActionGeo_CountryCode === requestedCountry);
+const filtered = data.filter(d => d.Actor1CountryCode === requestedCountry);
+
 
     if (filtered.length === 0) {
       return res.status(404).json({ error: 'No data for that country.' });
