@@ -58,8 +58,16 @@ app.get('/api/flee-score', async (req, res) => {
       ? avgToneSample.reduce((sum, n) => sum + n, 0) / avgToneSample.length
       : 0;
 
-    const negativityMultiplier = avgTone < 0 ? Math.pow(-avgTone, 1.5) * 4 : 0;
-    const score = Math.min(Math.round(eventCount * negativityMultiplier), 100);
+    // Base score from event volume
+    const rawScore = eventCount * 2;
+
+    // Tone penalty logic
+    let tonePenalty = 0;
+    if (avgTone >= -2) tonePenalty = 60;
+    else if (avgTone >= -4) tonePenalty = 40;
+    else if (avgTone >= -6) tonePenalty = 20;
+
+    const score = Math.max(0, Math.min(100, rawScore - tonePenalty));
 
     const reason = eventCount > 0
       ? `${eventCount} events reported in ${country} over the last 7 days with an average tone of ${avgTone.toFixed(2)}.`
