@@ -1,87 +1,81 @@
 const express = require('express');
 const fs = require('fs');
-const csv = require('csv-parser');
-const cors = require('cors');
-
+const Papa = require('papaparse');
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
+const CSV_FILE = 'gdelt-mirror.csv';
 
-app.use(cors());
+app.use(express.static('public'));
 
-// Country weights (add or adjust as needed)
-const violentEventCodes = new Set(['19', '20']); // 19 = fight, 20 = use of force
+app.get('/api/data', (req, res) => {
+  fs.readFile(CSV_FILE, 'utf8', (err, csvData) => {
+    if (err) {
+      console.error('Error reading CSV file:', err);
+      return res.status(500).send('Server error');
+    }
 
-function calculateFleeScore(entry) {
-  const avgTone = parseFloat(entry.AvgTone) || 0;
-  const goldstein = parseFloat(entry.GoldsteinScale) || 0;
-  const eventCode = (entry.EventRootCode || '').trim();
-  const articleCount = parseInt(entry.NumArticles || entry.ArticleCount || '0');
+    const parsed = Papa.parse(csvData, { header: true });
+    const rows = parsed.data;
 
-  // Main weighted score formula
-  let score = 0;
+    const result = {};
 
-  // Tone is the strongest signal
-  score += avgTone * 1.5;
+    for (const row of rows) {
+      const country = row.ActionGeo_CountryCode;
+      const tone = parseFloat(row.AvgTone);
+      const goldstein = parseFloat(row.GoldsteinScale);
+      const articles = parseInt(row.NumArticles);
+      const rootCode = row.EventRootCode;
 
-  // Goldstein scale provides context (e.g., -10 = war, +10 = peace deal)
-  score += goldstein * 0.7;
+      if (!country || isNaN(tone) || isNaN(goldstein) || isNaN(articles)) continue;
 
-  // Event type – amplify score for violent conflict codes
-  if (violentEventCodes.has(eventCode)) {
-    score -= 1.5;
-  }
-
-  // Article count adds noise weight (but capped)
-  if (articleCount > 0) {
-    const cappedCount = Math.min(articleCount, 50); // cap influence at 50
-    score -= cappedCount * 0.05;
-  }
-
-  return score;
-}
-
-function determineFleeStatus(score) {
-  if (score <= -5) return 'YES';
-  if (score <= -2.5) return 'MAYBE';
-  return 'NO';
-}
-
-app.get('/api/flee-score', (req, res) => {
-  const country = req.query.country;
-  if (!country) {
-    return res.status(400).json({ error: 'Country query parameter is required' });
-  }
-
-  const filePath = './gdelt-mirror.csv';
-
-  const countryEntries = [];
-
-  fs.createReadStream(filePath)
-    .pipe(csv())
-    .on('data', (row) => {
-      if ((row.ActionGeo_CountryCode || '').toLowerCase() === country.toLowerCase()) {
-        countryEntries.push(row);
-      }
-    })
-    .on('end', () => {
-      if (countryEntries.length === 0) {
-        return res.status(404).json({ error: 'No entries found for specified country' });
+      if (!result[country]) {
+        result[country] = {
+          tones: [],
+          goldsteins: [],
+          articleCount: 0,
+          violenceEventCount: 0,
+        };
       }
 
-      // Aggregate and calculate weighted score
-      const totalScore = countryEntries.reduce((sum, entry) => sum + calculateFleeScore(entry), 0);
-      const avgScore = totalScore / countryEntries.length;
-      const fleeStatus = determineFleeStatus(avgScore);
+      result[country].tones.push(tone);
+      result[country].goldsteins.push(goldstein);
+      result[country].articleCount += articles;
 
-      res.json({
+      if (['14', '18', '19'].includes(rootCode)) {
+        result[country].violenceEventCount += 1;
+      }
+    }
+
+    const output = {};
+
+    for (const country in result) {
+      const data = result[country];
+      const avgTone = data.tones.reduce((a, b) => a + b, 0) / data.tones.length;
+      const avgGoldstein = data.goldsteins.reduce((a, b) => a + b, 0) / data.goldsteins.length;
+      const violence = data.violenceEventCount;
+      const articles = data.articleCount;
+
+      const fleeScore = (-2 * avgTone) + (0.5 * violence) + (-1 * avgGoldstein) + Math.log(articles + 1);
+
+      let fleeLabel = 'NO';
+      if (fleeScore > 10) fleeLabel = 'YES';
+      else if (fleeScore > 5) fleeLabel = 'MAYBE';
+
+      output[country] = {
         country,
-        fleeStatus,
-        averageWeightedScore: avgScore.toFixed(2),
-        eventCount: countryEntries.length
-      });
-    });
+        avgTone: avgTone.toFixed(2),
+        avgGoldstein: avgGoldstein.toFixed(2),
+        articleCount: articles,
+        violenceEventCount: violence,
+        fleeScore: fleeScore.toFixed(2),
+        fleeLabel,
+      };
+    }
+
+    res.json(output);
+  });
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`Server is running on port ${PORT}`);
 });
