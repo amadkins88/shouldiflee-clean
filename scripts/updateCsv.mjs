@@ -15,8 +15,11 @@ const updateUrl = 'https://data.gdeltproject.org/gdeltv2/lastupdate.txt';
 const res = await fetch(updateUrl);
 const text = await res.text();
 const latestLine = text.trim().split('\n')[0];
-const latestZip = latestLine.split(' ')[0]; // Already includes .export.CSV.zip
-const zipUrl = `https://data.gdeltproject.org/gdeltv2/${latestZip}`;
+const parts = latestLine.split(' ');
+const timestamp = parts[2].split('.')[0]; // "20250515171500"
+const zipFile = `${timestamp}.export.CSV.zip`;
+const zipUrl = `https://data.gdeltproject.org/gdeltv2/${zipFile}`;
+
 
 
 
