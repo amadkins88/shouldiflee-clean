@@ -15,7 +15,9 @@ const updateUrl = 'https://data.gdeltproject.org/gdeltv2/lastupdate.txt';
 const res = await fetch(updateUrl);
 const text = await res.text();
 const latestZip = text.trim().split('\n').pop().split(' ')[0];
-const zipUrl = `https://data.gdeltproject.org/gdeltv2/${latestZip.replace('.zip', '.CSV.zip')}`;
+const base = latestZip.split('.')[0]; // removes .zip or anything after first period
+const zipUrl = `https://data.gdeltproject.org/gdeltv2/${base}.export.CSV.zip`;
+
 
 console.log(`🔍 Fetching latest file: ${zipUrl}`);
 
