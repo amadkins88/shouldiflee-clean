@@ -42,12 +42,14 @@ app.get('/api/flee-score', async (req, res) => {
     const country = req.query.country || 'United States';
     const searchTerm = country.toLowerCase();
 
-    const query = `
-      SELECT AvgTone
-      FROM \`gdelt-bq.gdeltv2.events\`
-      WHERE SQLDATE >= CAST(FORMAT_DATE('%Y%m%d', DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)) AS INT64)
-        AND LOWER(ActionGeo_FullName) LIKE '%${searchTerm}%'
-    `;
+const query = `
+  SELECT AvgTone
+  FROM \`gdelt-bq.gdeltv2.events\`
+  WHERE SQLDATE >= CAST(FORMAT_DATE('%Y%m%d', DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)) AS INT64)
+    AND LOWER(ActionGeo_FullName) LIKE '%${searchTerm}%'
+  LIMIT 1000
+`;
+
 
     const [rows] = await bigquery.query({ query });
     const eventCount = rows.length;
