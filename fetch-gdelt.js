@@ -1,9 +1,7 @@
 const fs = require('fs');
 const axios = require('axios');
-const unzipper = require('unzipper');
 const dayjs = require('dayjs');
 const readline = require('readline');
-const { createGunzip } = require('zlib');
 
 const GDELT_BASE = 'http://data.gdeltproject.org/gdeltv2/';
 const OUTPUT_CSV = 'gdelt-mirror.csv';
