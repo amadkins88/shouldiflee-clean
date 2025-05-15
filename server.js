@@ -9,7 +9,7 @@ const port = process.env.PORT || 3000;
 const CSV_PATH = path.join(__dirname, 'gdelt-mirror.csv');
 
 // ——————————————————————————————————————————————————————————
-// 1) CORS
+// 1) Dynamic CORS: allow any origin
 // ——————————————————————————————————————————————————————————
 app.use(cors({
   origin: (origin, callback) => callback(null, true),
@@ -22,7 +22,7 @@ app.use(cors({
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ——————————————————————————————————————————————————————————
-// 3a) /api/rawcsv
+// 3a) /api/rawcsv → plain text version
 // ——————————————————————————————————————————————————————————
 app.get('/api/rawcsv', (req, res) => {
   fs.readFile(CSV_PATH, 'utf8', (err, csvText) => {
@@ -35,28 +35,28 @@ app.get('/api/rawcsv', (req, res) => {
 });
 
 // ——————————————————————————————————————————————————————————
-// 3b) /api/data → CSV to JSON
+// 3b) /api/data → parse TSV into JSON
 // ——————————————————————————————————————————————————————————
 app.get('/api/data', (req, res) => {
-  fs.readFile(CSV_PATH, 'utf8', (err, csvText) => {
+  fs.readFile(CSV_PATH, 'utf8', (err, tsvText) => {
     if (err) {
       console.error('Error reading CSV:', err);
       return res.status(500).json({ error: 'Error reading CSV file' });
     }
 
-    const lines = csvText.trim().split('\n');
-    const headers = lines.shift().split(',').map(h => h.trim());
+    const lines = tsvText.trim().split('\n');
+    const headers = lines.shift().split('\t');
     const data = lines.map(line => {
-      const cols = line.split(',');
+      const cols = line.split('\t');
       const obj = {};
 
-      headers.forEach((header, i) => {
-        let val = cols[i]?.trim() || '';
-        if (['AvgTone', 'GoldsteinScale', 'NumArticles'].includes(header)) {
+      headers.forEach((h, i) => {
+        let val = cols[i] === undefined ? '' : cols[i].trim();
+        if (['AvgTone', 'GoldsteinScale', 'NumArticles'].includes(h)) {
           const n = parseFloat(val);
           val = Number.isFinite(n) ? n : 0;
         }
-        obj[header] = val;
+        obj[h] = val;
       });
 
       return obj;
@@ -70,36 +70,37 @@ app.get('/api/data', (req, res) => {
 // 3c) /api/flee-score?country=USA
 // ——————————————————————————————————————————————————————————
 app.get('/api/flee-score', (req, res) => {
-  const requestedCountry = req.query.country?.toUpperCase();
+  const requestedCountry = req.query.country?.trim().toUpperCase();
 
-  fs.readFile(CSV_PATH, 'utf8', (err, csvText) => {
+  fs.readFile(CSV_PATH, 'utf8', (err, tsvText) => {
     if (err) {
       console.error('Error reading CSV:', err);
       return res.status(500).json({ error: 'Could not read CSV' });
     }
 
-    const lines = csvText.trim().split('\n');
-    const headers = lines.shift().split(',').map(h => h.trim());
+    const lines = tsvText.trim().split('\n');
+    const headers = lines.shift().split('\t');
     const data = lines.map(line => {
-      const cols = line.split(',');
+      const cols = line.split('\t');
       const row = {};
-      headers.forEach((header, i) => {
+      headers.forEach((h, i) => {
         let val = cols[i]?.trim() || '';
-        if (['AvgTone', 'GoldsteinScale', 'NumArticles'].includes(header)) {
+        if (['AvgTone', 'GoldsteinScale', 'NumArticles'].includes(h)) {
           val = parseFloat(val);
-          row[header] = Number.isFinite(val) ? val : 0;
+          row[h] = Number.isFinite(val) ? val : 0;
         } else {
-          row[header] = val;
+          row[h] = val;
         }
       });
       return row;
     });
 
-    // 🔍 Use Actor1CountryCode as filter
+    // Debug: show sample keys and country match stats
+    console.log('Sample keys:', Object.keys(data[0]));
     const filtered = data.filter(d => d.Actor1CountryCode === requestedCountry);
+    console.log(`🔍 Found ${filtered.length} events for ${requestedCountry}`);
 
     if (filtered.length === 0) {
-      console.warn(`No matching rows for country: ${requestedCountry}`);
       return res.status(404).json({ error: 'No data for that country.' });
     }
 
@@ -130,14 +131,14 @@ app.get('/api/flee-score', (req, res) => {
 });
 
 // ——————————————————————————————————————————————————————————
-// 4) Fallback route for SPA
+// 4) Fallback for frontend routes
 // ——————————————————————————————————————————————————————————
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // ——————————————————————————————————————————————————————————
-// 5) Start the server
+// 5) Start
 // ——————————————————————————————————————————————————————————
 app.listen(port, () => {
   console.log(`🚀 Server running on http://localhost:${port}`);
