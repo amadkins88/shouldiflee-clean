@@ -10,7 +10,7 @@ const GDELT_BASE = 'http://data.gdeltproject.org/gdeltv2/';
 const OUTPUT_CSV = 'gdelt-mirror.csv';
 const TARGET_COUNTRIES = ['Ukraine', 'United States', 'Sudan', 'Canada'];
 
-function generateRecentFileUrls(hoursBack = 2) {
+function generateRecentFileUrls(hoursBack = 6) {
   const urls = [];
   const now = dayjs().utc().startOf('minute');
   const rounded = now.subtract(now.minute() % 15, 'minute');
@@ -21,6 +21,7 @@ function generateRecentFileUrls(hoursBack = 2) {
   }
   return urls;
 }
+
 
 async function tryDownloadCsv(url) {
   try {
