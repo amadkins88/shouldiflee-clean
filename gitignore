@@ -18,3 +18,10 @@ yarn-error.log*
 # Optional: ignore build artifacts (if added later)
 dist/
 build/
+
+# .gitignore
+node_modules/
+.env
+*.log
+encoded.txt
+
