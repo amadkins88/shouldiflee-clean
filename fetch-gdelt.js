@@ -1,7 +1,10 @@
 const fs = require('fs');
 const axios = require('axios');
 const dayjs = require('dayjs');
+const utc = require('dayjs/plugin/utc');
 const readline = require('readline');
+
+dayjs.extend(utc);
 
 const GDELT_BASE = 'http://data.gdeltproject.org/gdeltv2/';
 const OUTPUT_CSV = 'gdelt-mirror.csv';
@@ -12,7 +15,7 @@ function generateRecentFileUrls(hoursBack = 2) {
   const now = dayjs().utc().startOf('minute');
   const rounded = now.subtract(now.minute() % 15, 'minute');
 
-  for (let i = 0; i < (hoursBack * 4); i++) {
+  for (let i = 0; i < hoursBack * 4; i++) {
     const timestamp = rounded.subtract(i * 15, 'minute').format('YYYYMMDDHHmm00');
     urls.push(`${GDELT_BASE}${timestamp}.export.CSV`);
   }
