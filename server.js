@@ -70,7 +70,7 @@ app.get('/api/data', (req, res) => {
 // 3c) /api/flee-score?country=USA → return score summary
 // ——————————————————————————————————————————————————————————
 app.get('/api/flee-score', (req, res) => {
-  const requestedCountry = req.query.country;
+  const requestedCountry = req.query.country?.toUpperCase();
 
   fs.readFile(CSV_PATH, 'utf8', (err, csvText) => {
     if (err) {
@@ -95,7 +95,7 @@ app.get('/api/flee-score', (req, res) => {
       return row;
     });
 
-    // ✅ Use ActionGeo_CountryCode for more accurate matching
+    // ✅ Compare against uppercased request country
     const filtered = data.filter(d => d.ActionGeo_CountryCode === requestedCountry);
 
     if (filtered.length === 0) {
