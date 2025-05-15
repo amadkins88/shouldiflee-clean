@@ -12,10 +12,7 @@ const CSV_PATH = path.join(__dirname, 'gdelt-mirror.csv');
 // 1) Dynamic CORS: allow any origin (for dev + prod)
 // ——————————————————————————————————————————————————————————
 app.use(cors({
-  origin: (origin, callback) => {
-    // allow requests from any domain
-    callback(null, true);
-  },
+  origin: (origin, callback) => callback(null, true),
   credentials: true
 }));
 
@@ -38,8 +35,7 @@ app.get('/api/rawcsv', (req, res) => {
 });
 
 // ——————————————————————————————————————————————————————————
-// 3b) /api/data → parse CSV into JSON with simple split()
-//               numeric fields default to 0 if missing
+// 3b) /api/data → parse CSV into JSON
 // ——————————————————————————————————————————————————————————
 app.get('/api/data', (req, res) => {
   fs.readFile(CSV_PATH, 'utf8', (err, csvText) => {
@@ -49,10 +45,6 @@ app.get('/api/data', (req, res) => {
     }
 
     const lines = csvText.trim().split('\n');
-    if (lines.length < 2) {
-      return res.json([]);
-    }
-
     const headers = lines.shift().split(',');
     const data = lines.map(line => {
       const cols = line.split(',');
@@ -60,14 +52,10 @@ app.get('/api/data', (req, res) => {
 
       headers.forEach((h, i) => {
         let val = cols[i] === undefined ? '' : cols[i].trim();
-
-        // fallback for numeric fields:
         if (['AvgTone','GoldsteinScale','NumArticles'].includes(h)) {
-          // parseFloat or 0 if empty / invalid
           const n = parseFloat(val);
           val = Number.isFinite(n) ? n : 0;
         }
-
         obj[h] = val;
       });
 
@@ -75,6 +63,68 @@ app.get('/api/data', (req, res) => {
     });
 
     res.json(data);
+  });
+});
+
+// ——————————————————————————————————————————————————————————
+// 3c) /api/flee-score?country=USA → return score summary
+// ——————————————————————————————————————————————————————————
+app.get('/api/flee-score', (req, res) => {
+  const requestedCountry = req.query.country;
+
+  fs.readFile(CSV_PATH, 'utf8', (err, csvText) => {
+    if (err) {
+      console.error('Error reading CSV:', err);
+      return res.status(500).json({ error: 'Could not read CSV' });
+    }
+
+    const lines = csvText.trim().split('\n');
+    const headers = lines.shift().split(',');
+    const data = lines.map(line => {
+      const cols = line.split(',');
+      const row = {};
+      headers.forEach((h, i) => {
+        let val = cols[i]?.trim() || '';
+        if (['AvgTone', 'GoldsteinScale', 'NumArticles'].includes(h)) {
+          val = parseFloat(val);
+          row[h] = Number.isFinite(val) ? val : 0;
+        } else {
+          row[h] = val;
+        }
+      });
+      return row;
+    });
+
+    // Filter by country
+    const filtered = data.filter(d => d.Actor1CountryCode === requestedCountry);
+
+    if (filtered.length === 0) {
+      return res.status(404).json({ error: 'No data for that country.' });
+    }
+
+    const tones = filtered.map(d => d.AvgTone);
+    const averageTone = tones.reduce((a, b) => a + b, 0) / tones.length;
+
+    const flee =
+      averageTone <= -5.0 ? 'YES' :
+      averageTone <= -2.5 ? 'MAYBE' :
+      'NO';
+
+    const score =
+      averageTone <= -5.0 ? 90 :
+      averageTone <= -4.0 ? 75 :
+      averageTone <= -2.5 ? 60 :
+      averageTone <= -1.5 ? 40 :
+      10;
+
+    res.json({
+      score,
+      flee,
+      averageTone,
+      eventsChecked: filtered.length,
+      rawToneSample: tones.slice(0, 5),
+      topReason: `Average tone is ${averageTone.toFixed(2)} based on ${filtered.length} events.`
+    });
   });
 });
 
@@ -89,5 +139,5 @@ app.get('*', (req, res) => {
 // 5) Start
 // ——————————————————————————————————————————————————————————
 app.listen(port, () => {
-  console.log(`🚀  Server running on http://localhost:${port}`);
+  console.log(`🚀 Server running on http://localhost:${port}`);
 });
