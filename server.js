@@ -7,7 +7,7 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Point to your GCP service account key file
+// Connect to BigQuery using your service account key
 const bigquery = new BigQuery({
   keyFilename: path.join(__dirname, 'gdelt-key.json'),
 });
@@ -29,18 +29,25 @@ app.get('/api/flee-score', async (req, res) => {
     const [rows] = await bigquery.query({ query });
     const eventCount = rows.length;
 
-    const negativeEvents = rows.filter(r => parseFloat(r.AvgTone) < 0);
-    const avgTone = rows.length
-      ? negativeEvents.reduce((sum, r) => sum + parseFloat(r.AvgTone), 0) / negativeEvents.length
+    const avgToneSample = rows.map(r => parseFloat(r.AvgTone)).filter(n => !isNaN(n));
+    const negativeEvents = avgToneSample.filter(n => n < 0);
+    const avgTone = negativeEvents.length
+      ? negativeEvents.reduce((sum, n) => sum + n, 0) / negativeEvents.length
       : 0;
 
-    // Hybrid score: count of events + avgTone (negativity) boost
-    let score = Math.min(Math.round(eventCount * 1.5 + (avgTone < 0 ? -avgTone * 10 : 0)), 100);
-    let reason = eventCount > 0
+    const score = Math.min(Math.round(eventCount * 2 + (avgTone < 0 ? -avgTone * 15 : 0)), 100);
+    const reason = eventCount > 0
       ? `${eventCount} events reported in ${country} with an average tone of ${avgTone.toFixed(2)}.`
       : `No significant events reported in ${country} over the last 30 days.`;
 
-    res.json({ score, topReason: reason, eventsChecked: eventCount });
+    res.json({
+      score,
+      topReason: reason,
+      eventsChecked: eventCount,
+      negativeEvents: negativeEvents.length,
+      averageTone: avgTone,
+      rawToneSample: avgToneSample.slice(0, 10)
+    });
   } catch (error) {
     console.error("GDELT query error:", error);
     res.status(500).json({ error: "Failed to query GDELT data." });
