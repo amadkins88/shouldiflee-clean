@@ -1,97 +1,68 @@
 const express = require('express');
-const cors = require('cors');
-const axios = require('axios');
+const fetch = require('node-fetch');
 const csv = require('csv-parser');
-const { pipeline } = require('stream');
-const { promisify } = require('util');
-const dayjs = require('dayjs');
-
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors({
-  origin: 'https://shouldiflee.com'
-}));
+const CSV_URL = 'https://raw.githubusercontent.com/amadkins88/shouldiflee-clean/main/gdelt-mirror.csv';
 
-const asyncPipeline = promisify(pipeline);
+app.use(express.static('public'));
 
-const fetchGDELTData = async (country, days = 7) => {
-  const today = dayjs();
-  const results = [];
-  const lowerCountry = country.toLowerCase();
-
-  for (let i = 0; i < days; i++) {
-    const dateStr = today.subtract(i, 'day').format('YYYYMMDD');
-    const url = `http://data.gdeltproject.org/gdeltv2/${dateStr}.export.CSV`;
-
-    try {
-      const response = await axios({
-        method: 'get',
-        url,
-        responseType: 'stream',
-        timeout: 15000
-      });
-
-      await asyncPipeline(
-        response.data,
-        csv({ headers: false }),
-        async function* (source) {
-          for await (const row of source) {
-            const actionGeoFullName = row[51]?.toLowerCase();
-            const avgTone = parseFloat(row[34]);
-
-            if (actionGeoFullName && actionGeoFullName.includes(lowerCountry) && !isNaN(avgTone)) {
-              results.push(avgTone);
-            }
+function fetchAndAnalyze(country) {
+  return new Promise((resolve, reject) => {
+    const tones = [];
+    fetch(CSV_URL)
+      .then(res => res.body.pipe(csv()))
+      .then(stream => {
+        stream.on('data', (row) => {
+          if (row.country?.toLowerCase() === country.toLowerCase()) {
+            const tone = parseFloat(row.tone);
+            if (!isNaN(tone)) tones.push(tone);
           }
-        }
-      );
-    } catch (err) {
-      console.warn(`⚠️ Skipping ${url} due to fetch error or missing file.`);
-    }
-  }
+        });
+        stream.on('end', () => {
+          if (tones.length === 0) {
+            return resolve({
+              score: 0,
+              averageTone: null,
+              rawToneSample: [],
+              eventsChecked: 0,
+              topReason: 'No recent events found for this country.'
+            });
+          }
 
-  return results;
-};
+          const averageTone = tones.reduce((a, b) => a + b, 0) / tones.length;
+          const tonePenalty = Math.max(0, (1 - (averageTone + 10) / 10)); // avgTone -10 → full penalty, 0 → no penalty
+          const volumeBonus = Math.min(tones.length / 200, 1); // if 200+ events, full volume
+
+          const score = Math.round(100 * tonePenalty * volumeBonus);
+
+          resolve({
+            score,
+            averageTone,
+            rawToneSample: tones.slice(0, 5),
+            eventsChecked: tones.length,
+            topReason: `Analyzed ${tones.length} events. Avg tone: ${averageTone.toFixed(2)}.`
+          });
+        });
+      })
+      .catch(err => reject(err));
+  });
+}
 
 app.get('/api/flee-score', async (req, res) => {
+  const country = req.query.country;
+  if (!country) return res.status(400).json({ error: 'Country is required' });
+
   try {
-    const country = req.query.country || 'United States';
-    const tones = await fetchGDELTData(country, 7);
-    const eventCount = tones.length;
-
-    let averageTone = 0;
-    if (eventCount > 0) {
-      averageTone = tones.reduce((a, b) => a + b, 0) / eventCount;
-    }
-
-    const rawScore = eventCount * 2;
-
-    let tonePenalty = 0;
-    if (averageTone >= -2) tonePenalty = 60;
-    else if (averageTone >= -4) tonePenalty = 40;
-    else if (averageTone >= -6) tonePenalty = 20;
-
-    const score = Math.max(0, Math.min(100, rawScore - tonePenalty));
-
-    const reason = eventCount > 0
-      ? `${eventCount} events in ${country} over the last 7 days with an average tone of ${averageTone.toFixed(2)}.`
-      : `No significant events found in ${country} over the last 7 days.`;
-
-    res.json({
-      score,
-      topReason: reason,
-      eventsChecked: eventCount,
-      averageTone,
-      rawToneSample: tones.slice(0, 10)
-    });
-
-  } catch (error) {
-    console.error('❌ Mirror-based fetch failed:', error);
-    res.status(500).json({ error: 'Failed to fetch and parse GDELT data.' });
+    const result = await fetchAndAnalyze(country);
+    res.json(result);
+  } catch (err) {
+    console.error('CSV mirror error:', err);
+    res.status(500).json({ error: 'Failed to analyze CSV data' });
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 CSV mirror version running on port ${PORT}`);
+  console.log(`✅ Mirror API running on port ${PORT}`);
 });
