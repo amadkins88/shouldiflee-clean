@@ -1,10 +1,10 @@
 // server.js
 const express = require('express');
-const fs      = require('fs');
-const path    = require('path');
-const cors    = require('cors');
+const fs = require('fs');
+const path = require('path');
+const cors = require('cors');
 
-const app  = express();
+const app = express();
 const port = process.env.PORT || 3000;
 const CSV_PATH = path.join(__dirname, 'gdelt-mirror.csv');
 
@@ -52,7 +52,7 @@ app.get('/api/data', (req, res) => {
 
       headers.forEach((h, i) => {
         let val = cols[i] === undefined ? '' : cols[i].trim();
-        if (['AvgTone','GoldsteinScale','NumArticles'].includes(h)) {
+        if (['AvgTone', 'GoldsteinScale', 'NumArticles'].includes(h)) {
           const n = parseFloat(val);
           val = Number.isFinite(n) ? n : 0;
         }
@@ -95,8 +95,8 @@ app.get('/api/flee-score', (req, res) => {
       return row;
     });
 
-    // Filter by country
-    const filtered = data.filter(d => d.Actor1CountryCode === requestedCountry);
+    // ✅ Use ActionGeo_CountryCode for more accurate matching
+    const filtered = data.filter(d => d.ActionGeo_CountryCode === requestedCountry);
 
     if (filtered.length === 0) {
       return res.status(404).json({ error: 'No data for that country.' });
