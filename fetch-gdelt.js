@@ -10,8 +10,11 @@ const COUNTRY_FILTER = ['Ukraine', 'United States', 'Sudan', 'Canada']; // Custo
 async function getLatestFileUrl() {
   const res = await axios.get(GDELT_LAST_UPDATE_URL);
   const lines = res.data.trim().split('\n');
-  return lines[1]; // Second line is the full file URL
+  const fields = lines[1].split(' '); // split by space
+  const url = fields.find(f => f.startsWith('http'));
+  return url;
 }
+
 
 async function downloadAndFilterCSV(csvUrl) {
   const response = await axios.get(csvUrl, { responseType: 'stream' });
