@@ -1,4 +1,4 @@
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'; // ⚠️ DEV ONLY
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
 import fetch from 'node-fetch';
 import fs from 'fs';
@@ -11,7 +11,6 @@ import readline from 'readline';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// 1. Get latest file URL
 const updateUrl = 'https://data.gdeltproject.org/gdeltv2/lastupdate.txt';
 const res = await fetch(updateUrl);
 const text = await res.text();
@@ -32,7 +31,6 @@ if (!zipRes.ok) {
 }
 const zipBuffer = Buffer.from(await zipRes.arrayBuffer());
 
-// 2. Extract & combine all .csv files into gdelt-mirror.csv
 const outputPath = path.join(__dirname, '..', 'gdelt-mirror.csv');
 const writeStream = fs.createWriteStream(outputPath);
 let wroteHeader = false;
@@ -40,18 +38,16 @@ let wroteHeader = false;
 const zipStream = unzipper.Parse();
 
 zipStream.on('entry', async entry => {
-  if (!entry.path.endsWith('.csv')) {
+  console.log(`📁 Found: ${entry.path}`);
+
+  const lower = entry.path.toLowerCase();
+  if (!lower.endsWith('.csv')) {
+    console.log(`⏭️ Skipping non-CSV: ${entry.path}`);
     entry.autodrain();
     return;
   }
 
-  console.log(`📄 Extracting: ${entry.path}`);
-
-  const rl = readline.createInterface({
-    input: entry,
-    crlfDelay: Infinity
-  });
-
+  const rl = readline.createInterface({ input: entry, crlfDelay: Infinity });
   let isFirstLine = true;
 
   for await (const line of rl) {
