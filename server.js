@@ -3,13 +3,26 @@ const cors = require('cors');
 require('dotenv').config();
 const { BigQuery } = require('@google-cloud/bigquery');
 const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Connect to BigQuery using your service account key
+// Write GCP key from environment into a real file
+const keyPath = path.join(__dirname, 'gdelt-key.json');
+
+if (!fs.existsSync(keyPath)) {
+  try {
+    const keyBuffer = Buffer.from(process.env.GDELT_KEY_B64, 'base64');
+    fs.writeFileSync(keyPath, keyBuffer);
+    console.log('✔️ GDELT key written to disk');
+  } catch (err) {
+    console.error('❌ Failed to decode GDELT_KEY_B64:', err);
+  }
+}
+
 const bigquery = new BigQuery({
-  keyFilename: path.join(__dirname, 'gdelt-key.json'),
+  keyFilename: keyPath,
 });
 
 app.use(cors());
@@ -55,5 +68,5 @@ app.get('/api/flee-score', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`🌍 Server running on port ${PORT}`);
 });
