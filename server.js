@@ -14,9 +14,8 @@ app.use(cors({
 
 const CSV_URL = 'https://raw.githubusercontent.com/amadkins88/shouldiflee-clean/main/gdelt-mirror.csv';
 
-// 🧠 Main flee score endpoint
 app.get('/api/flee-score', async (req, res) => {
-  const country = req.query.country?.toUpperCase();
+  const country = req.query.country;
 
   if (!country) {
     return res.status(400).json({ error: 'Missing country parameter' });
@@ -34,14 +33,15 @@ app.get('/api/flee-score', async (req, res) => {
       .on('data', (row) => {
         const date = dayjs(row.SQLDATE, 'YYYYMMDD');
         const tone = parseFloat(row.AvgTone);
-        const actor1 = row.Actor1CountryCode?.toUpperCase();
-        const actor2 = row.Actor2CountryCode?.toUpperCase();
+
+        const actor1 = row.Actor1CountryCode?.toLowerCase();
+        const actor2 = row.Actor2CountryCode?.toLowerCase();
+        const targetCountry = country.toLowerCase();
 
         if (
-          date.isValid() &&
+          row.SQLDATE && tone &&
           date.isAfter(sevenDaysAgo) &&
-          (actor1 === country || actor2 === country) &&
-          !isNaN(tone)
+          (actor1 === targetCountry || actor2 === targetCountry)
         ) {
           events.push({ date, tone });
         }
@@ -50,7 +50,7 @@ app.get('/api/flee-score', async (req, res) => {
         if (events.length === 0) {
           return res.json({
             score: 0,
-            topReason: `No significant events found involving ${country} over the last 7 days.`,
+            topReason: `No significant events found in ${country} over the last 7 days.`,
             eventsChecked: 0,
             averageTone: 0,
             rawToneSample: []
@@ -59,9 +59,21 @@ app.get('/api/flee-score', async (req, res) => {
 
         const tones = events.map(e => e.tone);
         const avgTone = tones.reduce((a, b) => a + b, 0) / tones.length;
-        const tonePenalty = Math.max(0, (10 + avgTone) * 5); // more negative tone = more penalty
-        let score = Math.min(100, events.length * 2 + tonePenalty);
-        score = Math.max(0, Math.round(score - avgTone * 2)); // deduct if tone is improving
+
+        // ✅ New scoring logic
+        let score = 50; // neutral baseline
+
+        if (avgTone < 0) {
+          score += Math.abs(avgTone) * 5;
+        } else {
+          score -= avgTone * 5;
+        }
+
+        // Add a small bump for number of events (capped)
+        score += Math.min(events.length, 10);
+
+        // Clamp the score between 0 and 100
+        score = Math.max(0, Math.min(100, Math.round(score)));
 
         res.json({
           score,
@@ -78,32 +90,6 @@ app.get('/api/flee-score', async (req, res) => {
   }
 });
 
-// 🌍 Optional: API to return all countries seen in the data
-app.get('/api/countries', async (req, res) => {
-  try {
-    const response = await axios.get(CSV_URL, { responseType: 'stream' });
-
-    const countries = new Set();
-
-    response.data
-      .pipe(csv())
-      .on('data', (row) => {
-        const actor1 = row.Actor1CountryCode?.toUpperCase();
-        const actor2 = row.Actor2CountryCode?.toUpperCase();
-        if (actor1) countries.add(actor1);
-        if (actor2) countries.add(actor2);
-      })
-      .on('end', () => {
-        res.json(Array.from(countries).sort());
-      });
-
-  } catch (err) {
-    console.error('❌ Error fetching CSV for countries:', err.message);
-    res.status(500).json({ error: 'Failed to fetch country list.' });
-  }
-});
-
-// ✅ Server startup
 app.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
 });
