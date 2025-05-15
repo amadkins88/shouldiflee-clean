@@ -4,7 +4,8 @@
   "description": "Backend proxy for ShouldIFlee.com using GDELT + BigQuery",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "update-csv": "node scripts/updateCsv.js"
   },
   "dependencies": {
     "@google-cloud/bigquery": "^6.0.0",
@@ -21,3 +22,4 @@
     "node": ">=14"
   }
 }
+
