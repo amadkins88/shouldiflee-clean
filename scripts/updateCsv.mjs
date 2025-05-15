@@ -1,3 +1,5 @@
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'; // ⚠️ WARNING: disables SSL checks!
+
 import fetch from 'node-fetch';
 import fs from 'fs';
 import path from 'path';
