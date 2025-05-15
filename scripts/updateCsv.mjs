@@ -14,26 +14,27 @@ const __dirname = dirname(__filename);
 const updateUrl = 'https://data.gdeltproject.org/gdeltv2/lastupdate.txt';
 const res = await fetch(updateUrl);
 const text = await res.text();
-const latestLine = text.trim().split('\n')[0]; // example: "http://data.gdeltproject.org/gdeltv2/20250515.export.CSV.zip 20250515171500"
-const fullUrl = latestLine.split(' ')[0].trim(); // just get the full URL, safely
+console.log('🧾 lastupdate.txt contents:\n', text);
 
+// 2. Extract the full URL from the line
+const line = text.trim().split('\n')[0];
+const parts = line.split(' ');
+const fullUrl = parts.find(p => p.startsWith('http'));
 
-
-
-
+if (!fullUrl) {
+  throw new Error('❌ Could not find a valid URL in lastupdate.txt');
+}
 
 console.log(`🔍 Fetching latest file: ${fullUrl}`);
 
-
-// 2. Download the ZIP file
+// 3. Download the ZIP file
 const zipRes = await fetch(fullUrl);
-
 if (!zipRes.ok) {
-  throw new Error(`Failed to fetch ${zipUrl}: ${zipRes.statusText}`);
+  throw new Error(`Failed to fetch ${fullUrl}: ${zipRes.statusText}`);
 }
 const zipBuffer = Buffer.from(await zipRes.arrayBuffer());
 
-// 3. Extract CSV from ZIP and save to gdelt-mirror.csv
+// 4. Extract CSV from ZIP and save to gdelt-mirror.csv
 const outputPath = path.join(__dirname, '..', 'gdelt-mirror.csv');
 
 const zipStream = unzipper.ParseOne();
