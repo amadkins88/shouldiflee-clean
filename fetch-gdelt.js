@@ -5,83 +5,81 @@ const dayjs = require('dayjs');
 const utc = require('dayjs/plugin/utc');
 dayjs.extend(utc);
 
-const GDELT_INDEX = 'http://data.gdeltproject.org/gdeltv2/lastupdate.txt';
 const OUTPUT_CSV = 'gdelt-mirror.csv';
-const COUNTRIES = ['United States', 'Ukraine', 'Sudan', 'Canada']; // Adjust as needed
+const COUNTRIES = ['United States', 'Ukraine', 'Sudan', 'Canada']; // Update as needed
 
-const today = dayjs().utc();
-const fallback = today.subtract(1, 'day');
-const dateString = today.format('YYYYMMDD');
-const fallbackString = fallback.format('YYYYMMDD');
+// Get 8 most recent intervals (every 15 minutes)
+function generateRecentFileUrls(hoursBack = 2) {
+  const urls = [];
+  const now = dayjs().utc();
 
-// Get latest file list (today or fallback to yesterday)
-async function fetchGdeltFileList() {
-  const res = await axios.get(GDELT_INDEX);
-  const lines = res.data.split('\n');
-
-  const todayFiles = lines.filter(line => line.includes(dateString) && line.endsWith('.export.csv')).map(line => line.trim());
-  if (todayFiles.length > 0) return todayFiles;
-
-  const fallbackFiles = lines.filter(line => line.includes(fallbackString) && line.endsWith('.export.csv')).map(line => line.trim());
-  return fallbackFiles;
+  for (let i = 0; i < (hoursBack * 4); i++) {
+    const timestamp = now.subtract(i * 15, 'minute').format('YYYYMMDDHHmm00');
+    urls.push(`http://data.gdeltproject.org/gdeltv2/${timestamp}.export.CSV`);
+  }
+  return urls;
 }
 
-// Download and filter a single GDELT CSV file
+// Download and filter a GDELT CSV file
 async function downloadAndFilterCSV(url) {
   const results = [];
 
-  const response = await axios.get(url, { responseType: 'stream' });
+  try {
+    const response = await axios.get(url, { responseType: 'stream' });
 
-  return new Promise((resolve, reject) => {
-    response.data
-      .pipe(csv({ headers: false }))
-      .on('data', (data) => {
-        const country = data[51]; // Actor1CountryCode
-        const tone = parseFloat(data[34]); // Tone
-        const event = {
-          date: data[1],
-          country: data[51],
-          tone: isNaN(tone) ? null : tone,
-        };
+    return new Promise((resolve, reject) => {
+      response.data
+        .pipe(csv({ headers: false }))
+        .on('data', (data) => {
+          const country = data[51]; // Actor1CountryCode
+          const tone = parseFloat(data[34]); // Tone
+          const event = {
+            date: data[1],
+            country: data[51],
+            tone: isNaN(tone) ? null : tone,
+          };
 
-        if (COUNTRIES.includes(country)) {
-          results.push(event);
-        }
-      })
-      .on('end', () => resolve(results))
-      .on('error', reject);
-  });
+          if (COUNTRIES.includes(country)) {
+            results.push(event);
+          }
+        })
+        .on('end', () => resolve(results))
+        .on('error', reject);
+    });
+  } catch (err) {
+    return []; // Skip missing file
+  }
 }
 
-// Save filtered events to local CSV
-function saveToCSV(events, outputFile) {
+// Save filtered data
+function saveToCSV(events) {
   const header = 'date,country,tone\n';
   const rows = events.map(e => `${e.date},${e.country},${e.tone}`);
-  fs.writeFileSync(outputFile, header + rows.join('\n'));
+  fs.writeFileSync(OUTPUT_CSV, header + rows.join('\n'));
 }
 
-// Main logic
+// Main
 (async () => {
   try {
-    const files = await fetchGdeltFileList();
-
-    if (!files.length) {
-      console.log('No data files available yet for today or fallback.');
-      return;
-    }
-
-    const urls = files.map(file => `http://data.gdeltproject.org/gdeltv2/${file}`);
+    const urls = generateRecentFileUrls(4); // Try last 4 hours
     const allEvents = [];
 
-    for (const url of urls.slice(0, 5)) { // limit to 5 files to avoid overload
-      console.log(`Fetching ${url}...`);
+    for (const url of urls) {
+      console.log(`Trying: ${url}`);
       const events = await downloadAndFilterCSV(url);
-      allEvents.push(...events);
+      if (events.length > 0) {
+        console.log(`✅ Found ${events.length} events in ${url}`);
+        allEvents.push(...events);
+      }
     }
 
-    saveToCSV(allEvents, OUTPUT_CSV);
-    console.log(`✅ Saved ${allEvents.length} filtered events to ${OUTPUT_CSV}`);
+    if (allEvents.length === 0) {
+      console.log('No usable GDELT data found in recent intervals.');
+    } else {
+      saveToCSV(allEvents);
+      console.log(`✅ Saved ${allEvents.length} events to ${OUTPUT_CSV}`);
+    }
   } catch (err) {
-    console.error('❌ Failed:', err.message);
+    console.error('❌ Error:', err.message);
   }
 })();
