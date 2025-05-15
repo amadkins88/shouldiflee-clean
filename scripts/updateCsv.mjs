@@ -14,9 +14,10 @@ const __dirname = dirname(__filename);
 const updateUrl = 'https://data.gdeltproject.org/gdeltv2/lastupdate.txt';
 const res = await fetch(updateUrl);
 const text = await res.text();
-const latestLine = text.trim().split('\n')[0]; // Get the newest
-const base = latestLine.split(' ')[0];
-const zipUrl = `https://data.gdeltproject.org/gdeltv2/${base}.export.CSV.zip`;
+const latestLine = text.trim().split('\n')[0];
+const latestZip = latestLine.split(' ')[0]; // Already includes .export.CSV.zip
+const zipUrl = `https://data.gdeltproject.org/gdeltv2/${latestZip}`;
+
 
 
 
