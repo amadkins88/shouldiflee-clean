@@ -41,10 +41,10 @@ async function downloadAndFilterGdelt(url) {
 
   for await (const line of rl) {
     const cols = line.split('\t');
-    const sqlDate = cols[1];
-    const actor1 = cols[17];
-    const actor2 = cols[21];
-    const tone = cols[34];
+    const sqlDate = cols[1];          // Correct for SQLDATE
+    const actor1 = cols[7];           // Actor1CountryCode
+    const actor2 = cols[17];          // Actor2CountryCode
+    const tone = cols[34];            // AvgTone
     if (sqlDate && (actor1 || actor2) && tone) {
       output.write(`${sqlDate},${actor1},${actor2},${tone}\n`);
     }
