@@ -7,7 +7,7 @@ const cors = require('cors');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Enable CORS only for your frontend domain
+// Allow CORS from frontend domain
 app.use(cors({
   origin: 'https://shouldiflee.com'
 }));
@@ -31,17 +31,15 @@ app.get('/api/flee-score', async (req, res) => {
     response.data
       .pipe(csv())
       .on('data', (row) => {
+        const rowCountry1 = row.Actor1CountryCode?.toLowerCase();
+        const rowCountry2 = row.Actor2CountryCode?.toLowerCase();
         const date = dayjs(row.SQLDATE, 'YYYYMMDD');
         const tone = parseFloat(row.AvgTone);
 
-        const actor1 = row.Actor1CountryCode?.toLowerCase();
-        const actor2 = row.Actor2CountryCode?.toLowerCase();
-        const targetCountry = country.toLowerCase();
-
         if (
-          row.SQLDATE && tone &&
           date.isAfter(sevenDaysAgo) &&
-          (actor1 === targetCountry || actor2 === targetCountry)
+          (rowCountry1 === country.toLowerCase() || rowCountry2 === country.toLowerCase()) &&
+          !isNaN(tone)
         ) {
           events.push({ date, tone });
         }
@@ -60,20 +58,22 @@ app.get('/api/flee-score', async (req, res) => {
         const tones = events.map(e => e.tone);
         const avgTone = tones.reduce((a, b) => a + b, 0) / tones.length;
 
-        // ✅ New scoring logic
-        let score = 50; // neutral baseline
+        // 🎯 Updated scoring logic
+        let score = 0;
 
-        if (avgTone < 0) {
-          score += Math.abs(avgTone) * 5;
+        if (avgTone < -5) {
+          score = 90; // very dangerous tone
+        } else if (avgTone < -2) {
+          score = 70 + (events.length * 0.5);
+        } else if (avgTone < 0) {
+          score = 50 + (events.length * 0.25);
+        } else if (avgTone < 2) {
+          score = 30; // moderately safe
         } else {
-          score -= avgTone * 5;
+          score = 10; // safe
         }
 
-        // Add a small bump for number of events (capped)
-        score += Math.min(events.length, 10);
-
-        // Clamp the score between 0 and 100
-        score = Math.max(0, Math.min(100, Math.round(score)));
+        score = Math.round(Math.min(100, Math.max(0, score)));
 
         res.json({
           score,
