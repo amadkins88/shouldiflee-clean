@@ -42,14 +42,13 @@ app.get('/api/flee-score', async (req, res) => {
     const country = req.query.country || 'United States';
     const searchTerm = country.toLowerCase();
 
-const query = `
-  SELECT AvgTone
-  FROM \`gdelt-bq.gdeltv2.events\`
-  WHERE SQLDATE >= CAST(FORMAT_DATE('%Y%m%d', DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)) AS INT64)
-    AND LOWER(ActionGeo_FullName) LIKE '%${searchTerm}%'
-  LIMIT 1000
-`;
-
+    const query = `
+      SELECT AvgTone
+      FROM \`gdelt-bq.gdeltv2.events\`
+      WHERE SQLDATE >= CAST(FORMAT_DATE('%Y%m%d', DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)) AS INT64)
+        AND LOWER(ActionGeo_FullName) LIKE '%${searchTerm}%'
+      LIMIT 1000
+    `;
 
     const [rows] = await bigquery.query({ query });
     const eventCount = rows.length;
@@ -60,10 +59,12 @@ const query = `
       ? negativeEvents.reduce((sum, n) => sum + n, 0) / negativeEvents.length
       : 0;
 
-    const score = Math.min(Math.round(eventCount * 2 + (avgTone < 0 ? -avgTone * 15 : 0)), 100);
+    const toneImpact = avgTone < 0 ? Math.pow(-avgTone, 2) * 10 : 0;
+    const score = Math.min(Math.round(eventCount * 2 + toneImpact), 100);
+
     const reason = eventCount > 0
-      ? `${eventCount} events reported in ${country} with an average tone of ${avgTone.toFixed(2)}.`
-      : `No significant events reported in ${country} over the last 30 days.`;
+      ? `${eventCount} events reported in ${country} over the last 7 days with an average tone of ${avgTone.toFixed(2)}.`
+      : `No significant events reported in ${country} over the last 7 days.`;
 
     res.json({
       score,
