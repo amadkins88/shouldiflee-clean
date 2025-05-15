@@ -1,107 +1,121 @@
 const express = require('express');
 const axios = require('axios');
 const csv = require('csv-parser');
+const fs = require('fs');
 const dayjs = require('dayjs');
-const cors = require('cors');
-
+const { pipeline } = require('stream');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Allow CORS for frontend
-app.use(cors({
-  origin: 'https://shouldiflee.com'
-}));
+const today = dayjs().format('YYYYMMDD');
+const GDELT_URL = `http://data.gdeltproject.org/gdeltv2/${today}*.export.CSV.zip`;
+const VIOLENCE_CODES = ['19', '20', '21', '23', '1122', '171', '172', '173', '138']; // Add/adjust as needed
 
-// Replace with your latest hosted CSV path
-const CSV_URL = 'https://raw.githubusercontent.com/amadkins88/shouldiflee-clean/main/gdelt-mirror.csv';
-
-const ROOT_EVENT_WEIGHTS = {
-  "14": 1.5, // Protest
-  "19": 2.0, // Armed Conflict
-  "17": 1.2, // Coercion
-  "13": 1.2, // Threaten
-  "01": 0.5, // Make Public Statement (low risk)
-  "03": 0.3  // Express Intent to Cooperate (very low)
+// Flee score weights
+const WEIGHTS = {
+  tone: 2.5,         // Negative tone increases flee risk
+  goldstein: 1.2,    // Higher magnitude = more impact
+  violence: 5,       // Bonus for violence-related codes
+  articles: 0.5      // More coverage = higher concern
 };
 
+// Thresholds
+const FLEE_THRESHOLDS = {
+  yes: 15,
+  maybe: 7
+};
+
+function calculateScore(events) {
+  let score = 0;
+
+  for (const event of events) {
+    const tone = parseFloat(event.AvgTone);
+    const goldstein = parseFloat(event.GoldsteinScale);
+    const articles = parseInt(event.NumArticles || '1');
+    const rootCode = event.EventRootCode || '';
+
+    const isViolent = VIOLENCE_CODES.includes(rootCode);
+    let eventScore = 0;
+
+    if (!isNaN(tone)) eventScore += Math.abs(tone) * WEIGHTS.tone;
+    if (!isNaN(goldstein)) eventScore += Math.abs(goldstein) * WEIGHTS.goldstein;
+    if (!isNaN(articles)) eventScore += Math.log(articles + 1) * WEIGHTS.articles;
+    if (isViolent) eventScore += WEIGHTS.violence;
+
+    score += eventScore;
+  }
+
+  return Math.round(score);
+}
+
+function determineFleeStatus(score) {
+  if (score >= FLEE_THRESHOLDS.yes) return 'YES';
+  if (score >= FLEE_THRESHOLDS.maybe) return 'MAYBE';
+  return 'NO';
+}
+
 app.get('/api/flee-score', async (req, res) => {
-  const country = req.query.country;
+  const country = (req.query.country || '').trim().toUpperCase();
+
   if (!country) {
-    return res.status(400).json({ error: 'Missing country parameter' });
+    return res.status(400).json({ error: 'Country parameter is required' });
   }
 
   try {
-    const response = await axios.get(CSV_URL, { responseType: 'stream' });
+    const url = `http://data.gdeltproject.org/gdeltv2/${today}.export.CSV.zip`;
 
-    const events = [];
-    const today = dayjs();
-    const sevenDaysAgo = today.subtract(7, 'day');
+    // Download and unzip CSV
+    const zip = await axios.get(url, { responseType: 'arraybuffer' });
+    const AdmZip = require('adm-zip');
+    const tempZip = new AdmZip(zip.data);
+    const zipEntries = tempZip.getEntries();
 
-    response.data
-      .pipe(csv())
-      .on('data', (row) => {
-        const date = dayjs(row.SQLDATE, 'YYYYMMDD');
-        const countryMatch =
-          row.Actor1CountryCode?.toLowerCase() === country.toLowerCase() ||
-          row.Actor2CountryCode?.toLowerCase() === country.toLowerCase();
+    const matchedEntry = zipEntries.find(entry => entry.entryName.endsWith('.CSV'));
 
-        if (
-          date.isAfter(sevenDaysAgo) &&
-          row.AvgTone && row.GoldsteinScale &&
-          row.EventRootCode && row.NumArticles &&
-          countryMatch
-        ) {
-          const tone = parseFloat(row.AvgTone);
-          const goldstein = parseFloat(row.GoldsteinScale);
-          const articles = parseInt(row.NumArticles) || 1;
-          const weight = ROOT_EVENT_WEIGHTS[row.EventRootCode] || 1;
+    if (!matchedEntry) throw new Error('CSV not found in zip.');
 
-          events.push({
-            tone,
-            goldstein,
-            weight,
-            articles,
-            effectiveTone: tone * weight * goldstein * Math.log1p(articles)
-          });
+    const csvData = matchedEntry.getData().toString('utf8');
+
+    // Write to temp file for parsing
+    const tempFile = './temp.csv';
+    fs.writeFileSync(tempFile, csvData);
+
+    const filteredEvents = [];
+    fs.createReadStream(tempFile)
+      .pipe(csv({ headers: false }))
+      .on('data', row => {
+        try {
+          const countryCode = row[51]; // Actor1CountryCode
+          if (countryCode && countryCode.toUpperCase() === country) {
+            filteredEvents.push({
+              AvgTone: row[34],
+              GoldsteinScale: row[30],
+              EventRootCode: row[26],
+              NumArticles: row[60]
+            });
+          }
+        } catch (err) {
+          // skip row
         }
       })
       .on('end', () => {
-        if (events.length === 0) {
-          return res.json({
-            score: 0,
-            topReason: `No significant events found for this country in the last 7 days.`,
-            eventsChecked: 0,
-            averageTone: 0,
-            rawToneSample: []
-          });
-        }
-
-        const totalWeight = events.reduce((sum, e) => sum + Math.abs(e.effectiveTone), 0);
-        const totalTone = events.reduce((sum, e) => sum + e.effectiveTone, 0);
-        const averageTone = totalTone / totalWeight;
-
-        // Pure tone-based scoring logic
-        let fleeAnswer = 'NO';
-        if (averageTone <= -5.0) fleeAnswer = 'YES';
-        else if (averageTone <= -2.5) fleeAnswer = 'MAYBE';
-
-        const score = fleeAnswer === 'YES' ? 100 : fleeAnswer === 'MAYBE' ? 60 : 30;
-
+        const score = calculateScore(filteredEvents);
+        const status = determineFleeStatus(score);
         res.json({
+          country,
+          status,
           score,
-          topReason: `Based on ${events.length} events with an average weighted tone of ${averageTone.toFixed(2)}.`,
-          eventsChecked: events.length,
-          averageTone,
-          rawToneSample: events.slice(0, 5).map(e => e.tone.toFixed(2)),
+          eventCount: filteredEvents.length
         });
-      });
 
+        fs.unlinkSync(tempFile);
+      });
   } catch (err) {
-    console.error('❌ Error fetching or parsing CSV:', err.message);
-    res.status(500).json({ error: 'Internal server error fetching data.' });
+    console.error(err);
+    res.status(500).json({ error: 'Failed to retrieve or process GDELT data' });
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`✅ Server running on port ${PORT}`);
+  console.log(`ShouldIFlee server running on port ${PORT}`);
 });
