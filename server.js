@@ -19,7 +19,8 @@ app.use(cors({
 const calculateFleeScore = async (country) => {
   const countryParam = encodeURIComponent(country);
   const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  const gdeltURL = `https://storage.googleapis.com/gedebucket/v2/events/${today}.export.csv`;
+  const gdeltURL = `http://data.gdeltproject.org/gdeltv2/lastupdate.txt`;
+
 
   try {
     const response = await fetch(gdeltURL);
