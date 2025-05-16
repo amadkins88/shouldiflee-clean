@@ -7,11 +7,7 @@ const app = express();
 const port = process.env.PORT || 3000;
 const CSV_PATH = path.join(__dirname, 'gdelt-mirror.csv');
 
-app.use(cors({
-  origin: (origin, callback) => callback(null, true),
-  credentials: true
-}));
-
+app.use(cors({ origin: (origin, callback) => callback(null, true), credentials: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/api/flee-score', (req, res) => {
@@ -60,23 +56,13 @@ app.get('/api/flee-score', (req, res) => {
       averageTone <= -1.5 ? 40 :
       10;
 
-    const related = filtered
-      .filter(row => {
-        if (!row.SOURCEURL) return false;
-        return flee === 'YES' ? row.AvgTone <= -2.5 : row.AvgTone > -2.5;
-      })
-      .map(r => r.SOURCEURL)
-      .filter((v, i, arr) => v && arr.indexOf(v) === i)
-      .slice(0, 3);
-
     res.json({
       score,
       flee,
       averageTone,
       eventsChecked: filtered.length,
       rawToneSample: tones.slice(0, 5),
-      topReason: `Average tone is ${averageTone.toFixed(2)} based on ${filtered.length} events.`,
-      relatedUrls: related
+      topReason: `Average tone is ${averageTone.toFixed(2)} based on ${filtered.length} events.`
     });
   });
 });
