@@ -32,7 +32,7 @@ app.get('/api/flee-score', (req, res) => {
     const lines = tsvText.trim().split('\n');
     const headers = lines.shift().split('\t');
     const data = lines.map(line => {
-      const cols = line.split('\t');
+      const cols = line.split(',');
       const row = {};
       headers.forEach((h, i) => {
         let val = cols[i]?.trim() || '';
