@@ -1,4 +1,3 @@
-// server.js
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
@@ -79,7 +78,7 @@ app.get('/api/flee-score', (req, res) => {
     }
 
     const lines = tsvText.trim().split('\n');
-    const headers = lines.shift().split(',');
+    const headers = lines.shift().split('\t');
     const data = lines.map(line => {
       const cols = line.split('\t');
       const row = {};
@@ -95,10 +94,7 @@ app.get('/api/flee-score', (req, res) => {
       return row;
     });
 
-    // Debug
-    console.log(`🔍 Looking for Actor1CountryCode = ${requestedCountry}`);
     const filtered = data.filter(d => d.Actor1CountryCode === requestedCountry);
-    console.log(`✅ Found ${filtered.length} matching events`);
 
     if (filtered.length === 0) {
       return res.status(404).json({ error: 'No data for that country.' });
@@ -119,13 +115,29 @@ app.get('/api/flee-score', (req, res) => {
       averageTone <= -1.5 ? 40 :
       10;
 
+    // ✨ Choose top 3 SOURCEURLs based on flee status
+    let sorted;
+    if (flee === 'YES') {
+      sorted = [...filtered].sort((a, b) => a.AvgTone - b.AvgTone); // Most negative
+    } else if (flee === 'NO') {
+      sorted = [...filtered].sort((a, b) => b.AvgTone - a.AvgTone); // Most positive
+    } else {
+      sorted = [...filtered].sort((a, b) => Math.abs(a.AvgTone) - Math.abs(b.AvgTone)); // Neutral
+    }
+
+    const urls = sorted
+      .map(e => e.SOURCEURL)
+      .filter(url => url && url.startsWith('http'))
+      .slice(0, 3);
+
     res.json({
       score,
       flee,
       averageTone,
       eventsChecked: filtered.length,
       rawToneSample: tones.slice(0, 5),
-      topReason: `Average tone is ${averageTone.toFixed(2)} based on ${filtered.length} events.`
+      topReason: `Average tone is ${averageTone.toFixed(2)} based on ${filtered.length} events.`,
+      urls
     });
   });
 });
@@ -138,7 +150,7 @@ app.get('*', (req, res) => {
 });
 
 // ——————————————————————————————————————————————————————————
-// 5) Start
+// 5) Start server
 // ——————————————————————————————————————————————————————————
 app.listen(port, () => {
   console.log(`🚀 Server running on http://localhost:${port}`);
