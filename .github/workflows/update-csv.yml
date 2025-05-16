@@ -2,26 +2,28 @@ name: Update GDELT CSV
 
 on:
   schedule:
-    - cron: "0 * * * *" # every hour
-  workflow_dispatch:
+    - cron: "0 * * * *" # Runs every hour
+  workflow_dispatch: # Allow manual run
 
 jobs:
   update-gdelt:
     runs-on: ubuntu-latest
+    env:
+      GH_PAT: ${{ secrets.GH_PAT }}
 
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Set up Node
-        uses: actions/setup-node@v3
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: 18
 
       - name: Install dependencies
-        run: npm install
+        run: npm install unzipper node-fetch@2
 
-      - name: Run updateCsv script
+      - name: Run update script
         run: node scripts/updateCsv.mjs
 
       - name: Commit and push if changed
@@ -31,6 +33,4 @@ jobs:
           git remote set-url origin https://x-access-token:${GH_PAT}@github.com/amadkins88/shouldiflee-clean.git
           git add gdelt-mirror.csv
           git commit -m "Update gdelt-mirror.csv" || echo "No changes to commit"
-          git push
-        env:
-          GH_PAT: ${{ secrets.GH_PAT }}
+          git push origin main
