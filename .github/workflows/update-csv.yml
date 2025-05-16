@@ -1,9 +1,9 @@
 name: Update GDELT CSV
 
 on:
-  workflow_dispatch: # Manual trigger from GitHub UI
   schedule:
-    - cron: "0 * * * *" # ⏰ Runs at minute 0 of every hour (UTC)
+    - cron: "0 * * * *" # every hour
+  workflow_dispatch:
 
 jobs:
   update-gdelt:
@@ -13,22 +13,24 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v3
 
-      - name: Set up Node.js
+      - name: Set up Node
         uses: actions/setup-node@v3
         with:
-          node-version: "18"
+          node-version: 18
 
       - name: Install dependencies
         run: npm install
 
-      - name: Run updateCsv.mjs
+      - name: Run updateCsv script
         run: node scripts/updateCsv.mjs
 
-      - name: Commit updated CSV
+      - name: Commit and push if changed
         run: |
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-          git remote set-url origin https://x-access-token:${{ secrets.GH_PAT }}@github.com/${{ github.repository }}
+          git remote set-url origin https://x-access-token:${GH_PAT}@github.com/amadkins88/shouldiflee-clean.git
           git add gdelt-mirror.csv
           git commit -m "Update gdelt-mirror.csv" || echo "No changes to commit"
           git push
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
