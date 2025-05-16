@@ -7,67 +7,13 @@ const app = express();
 const port = process.env.PORT || 3000;
 const CSV_PATH = path.join(__dirname, 'gdelt-mirror.csv');
 
-// ——————————————————————————————————————————————————————————
-// 1) Dynamic CORS: allow any origin
-// ——————————————————————————————————————————————————————————
 app.use(cors({
   origin: (origin, callback) => callback(null, true),
   credentials: true
 }));
 
-// ——————————————————————————————————————————————————————————
-// 2) Serve frontend
-// ——————————————————————————————————————————————————————————
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ——————————————————————————————————————————————————————————
-// 3a) /api/rawcsv → plain text version
-// ——————————————————————————————————————————————————————————
-app.get('/api/rawcsv', (req, res) => {
-  fs.readFile(CSV_PATH, 'utf8', (err, csvText) => {
-    if (err) {
-      console.error('Error reading CSV:', err);
-      return res.status(500).send('Error reading CSV file');
-    }
-    res.type('text/plain').send(csvText);
-  });
-});
-
-// ——————————————————————————————————————————————————————————
-// 3b) /api/data → parse TSV into JSON
-// ——————————————————————————————————————————————————————————
-app.get('/api/data', (req, res) => {
-  fs.readFile(CSV_PATH, 'utf8', (err, tsvText) => {
-    if (err) {
-      console.error('Error reading CSV:', err);
-      return res.status(500).json({ error: 'Error reading CSV file' });
-    }
-
-    const lines = tsvText.trim().split('\n');
-    const headers = lines.shift().split('\t');
-    const data = lines.map(line => {
-      const cols = line.split('\t');
-      const obj = {};
-
-      headers.forEach((h, i) => {
-        let val = cols[i] === undefined ? '' : cols[i].trim();
-        if (['AvgTone', 'GoldsteinScale', 'NumArticles'].includes(h)) {
-          const n = parseFloat(val);
-          val = Number.isFinite(n) ? n : 0;
-        }
-        obj[h] = val;
-      });
-
-      return obj;
-    });
-
-    res.json(data);
-  });
-});
-
-// ——————————————————————————————————————————————————————————
-// 3c) /api/flee-score?country=USA
-// ——————————————————————————————————————————————————————————
 app.get('/api/flee-score', (req, res) => {
   const requestedCountry = req.query.country?.trim().toUpperCase();
 
@@ -95,7 +41,6 @@ app.get('/api/flee-score', (req, res) => {
     });
 
     const filtered = data.filter(d => d.Actor1CountryCode === requestedCountry);
-
     if (filtered.length === 0) {
       return res.status(404).json({ error: 'No data for that country.' });
     }
@@ -115,19 +60,13 @@ app.get('/api/flee-score', (req, res) => {
       averageTone <= -1.5 ? 40 :
       10;
 
-    // ✨ Choose top 3 SOURCEURLs based on flee status
-    let sorted;
-    if (flee === 'YES') {
-      sorted = [...filtered].sort((a, b) => a.AvgTone - b.AvgTone); // Most negative
-    } else if (flee === 'NO') {
-      sorted = [...filtered].sort((a, b) => b.AvgTone - a.AvgTone); // Most positive
-    } else {
-      sorted = [...filtered].sort((a, b) => Math.abs(a.AvgTone) - Math.abs(b.AvgTone)); // Neutral
-    }
-
-    const urls = sorted
-      .map(e => e.SOURCEURL)
-      .filter(url => url && url.startsWith('http'))
+    const related = filtered
+      .filter(row => {
+        if (!row.SOURCEURL) return false;
+        return flee === 'YES' ? row.AvgTone <= -2.5 : row.AvgTone > -2.5;
+      })
+      .map(r => r.SOURCEURL)
+      .filter((v, i, arr) => v && arr.indexOf(v) === i)
       .slice(0, 3);
 
     res.json({
@@ -137,21 +76,11 @@ app.get('/api/flee-score', (req, res) => {
       eventsChecked: filtered.length,
       rawToneSample: tones.slice(0, 5),
       topReason: `Average tone is ${averageTone.toFixed(2)} based on ${filtered.length} events.`,
-      urls
+      relatedUrls: related
     });
   });
 });
 
-// ——————————————————————————————————————————————————————————
-// 4) Fallback for frontend routes
-// ——————————————————————————————————————————————————————————
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-// ——————————————————————————————————————————————————————————
-// 5) Start server
-// ——————————————————————————————————————————————————————————
 app.listen(port, () => {
   console.log(`🚀 Server running on http://localhost:${port}`);
 });
