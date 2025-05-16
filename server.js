@@ -95,10 +95,10 @@ app.get('/api/flee-score', (req, res) => {
       return row;
     });
 
-    // Debug: show sample keys and country match stats
-    console.log('Sample keys:', Object.keys(data[0]));
+    // Debug
+    console.log(`🔍 Looking for Actor1CountryCode = ${requestedCountry}`);
     const filtered = data.filter(d => d.Actor1CountryCode === requestedCountry);
-    console.log(`🔍 Found ${filtered.length} events for ${requestedCountry}`);
+    console.log(`✅ Found ${filtered.length} matching events`);
 
     if (filtered.length === 0) {
       return res.status(404).json({ error: 'No data for that country.' });
