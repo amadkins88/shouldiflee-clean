@@ -7,11 +7,21 @@ const app = express();
 const port = process.env.PORT || 3000;
 const CSV_PATH = path.join(__dirname, 'gdelt-mirror.csv');
 
-app.use(cors({ origin: (origin, callback) => callback(null, true), credentials: true }));
+// Allow CORS from any origin (Netlify or local)
+app.use(cors({
+  origin: (origin, callback) => callback(null, true),
+  credentials: true
+}));
+
+// Serve the frontend (including favicon) from /public
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Flee-score API endpoint
 app.get('/api/flee-score', (req, res) => {
   const requestedCountry = req.query.country?.trim().toUpperCase();
+  if (!requestedCountry) {
+    return res.status(400).json({ error: 'Missing country query parameter.' });
+  }
 
   fs.readFile(CSV_PATH, 'utf8', (err, tsvText) => {
     if (err) {
@@ -56,17 +66,33 @@ app.get('/api/flee-score', (req, res) => {
       averageTone <= -1.5 ? 40 :
       10;
 
+    const related = filtered
+      .filter(row => {
+        if (!row.SOURCEURL) return false;
+        return flee === 'YES' ? row.AvgTone <= -2.5 : row.AvgTone > -2.5;
+      })
+      .map(r => r.SOURCEURL)
+      .filter((v, i, arr) => v && arr.indexOf(v) === i)
+      .slice(0, 3);
+
     res.json({
       score,
       flee,
       averageTone,
       eventsChecked: filtered.length,
       rawToneSample: tones.slice(0, 5),
-      topReason: `Average tone is ${averageTone.toFixed(2)} based on ${filtered.length} events.`
+      topReason: `Average tone is ${averageTone.toFixed(2)} based on ${filtered.length} events.`,
+      relatedUrls: related
     });
   });
 });
 
+// Catch-all route for SPA fallback
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Start the server
 app.listen(port, () => {
   console.log(`🚀 Server running on http://localhost:${port}`);
 });
